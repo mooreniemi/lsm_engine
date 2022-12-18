@@ -1,20 +1,16 @@
 use serde::{Deserialize, Serialize};
-#[macro_use]
-use thiserror::Error;
-use std::fs::File;
 use std::convert::TryFrom;
-use std::io::{SeekFrom, Seek, BufReader, BufRead, Write};
-
+use std::fs::File;
+use std::io::{BufRead, BufReader, Seek, SeekFrom, Write};
+use thiserror::Error;
 
 pub(crate) type Result<T> = std::result::Result<T, KvError>;
-
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub struct KVPair {
     pub key: String,
     pub value: String,
 }
-
 
 impl TryFrom<String> for KVPair {
     type Error = KvError;
@@ -25,7 +21,6 @@ impl TryFrom<String> for KVPair {
     }
 }
 
-
 #[derive(Error, Debug)]
 pub enum KvError {
     #[error(transparent)]
@@ -33,7 +28,6 @@ pub enum KvError {
 
     #[error(transparent)]
     FileIOError(#[from] std::io::Error),
-
 }
 
 pub trait KVFileIterator {
@@ -42,7 +36,6 @@ pub trait KVFileIterator {
         self.file_as_mut().seek(SeekFrom::Start(pos))?;
         Ok(())
     }
-
 
     fn reset(&mut self) -> Result<()> {
         self.seek(0)?;
@@ -56,20 +49,18 @@ pub trait KVFileIterator {
 }
 
 pub trait KVFileReader: KVFileIterator {
-    fn read(&mut self) -> Box<dyn Iterator<Item=Result<KVPair>> + '_> {
+    fn read(&mut self) -> Box<dyn Iterator<Item = Result<KVPair>> + '_> {
         let reader = BufReader::new(self.file_as_mut());
 
-        return Box::new(reader.lines().map(|string| {
-            KVPair::try_from(string?)
-        }));
+        return Box::new(reader.lines().map(|string| KVPair::try_from(string?)));
     }
 
-    fn read_from_start(&mut self) -> Result<Box<dyn Iterator<Item=Result<KVPair>> + '_>> {
+    fn read_from_start(&mut self) -> Result<Box<dyn Iterator<Item = Result<KVPair>> + '_>> {
         self.seek(0)?;
         let reader = BufReader::new(self.file_as_mut());
-        return Ok(Box::new(reader.lines().map(|string| {
-            KVPair::try_from(string?)
-        })));
+        return Ok(Box::new(
+            reader.lines().map(|string| KVPair::try_from(string?)),
+        ));
     }
 }
 

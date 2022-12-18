@@ -285,7 +285,7 @@ impl LSMEngine {
             return Ok(None);
         }
 
-        let (closest_key, (key_offset, segment_index)) = maybe_closest_key.unwrap();
+        let (_closest_key, (key_offset, segment_index)) = maybe_closest_key.unwrap();
 
         for index in *segment_index..self.segments.len() {
             let segment = &mut self.segments[index];
@@ -326,7 +326,7 @@ impl Default for LSMEngine {
 #[cfg(test)]
 mod tests {
     use crate::{LSMEngine, LSMBuilder};
-    use crate::{TOMBSTONE_VALUE};
+    
     use rand::seq::SliceRandom;
     use rand::{SeedableRng};
 
@@ -401,7 +401,7 @@ mod tests {
             lsm.write(k.clone(), v.clone())?;
             seen.insert(k, v.clone());
 
-            let (random_key, random_value) = dataset.choose(&mut rng).unwrap();
+            let (random_key, _random_value) = dataset.choose(&mut rng).unwrap();
             let mut value = None;
 
             if seen.contains_key(random_key) {
@@ -424,7 +424,7 @@ mod tests {
 
 
         for i in 10..dataset.len() {
-            let (k, v) = &dataset[i];
+            let (k, _v) = &dataset[i];
             lsm.delete(k)?;
         }
 
@@ -436,7 +436,7 @@ mod tests {
         }
 
         for i in 10..dataset.len() {
-            let (k, v) = &dataset[i];
+            let (k, _v) = &dataset[i];
             assert_eq!(new_lsm.read(k)?, None);
         }
         std::fs::remove_file("foo")?;

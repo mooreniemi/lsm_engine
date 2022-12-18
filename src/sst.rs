@@ -3,26 +3,23 @@ use std::fs::File;
 use binary_heap_plus::*;
 
 use std::fs::OpenOptions;
-use std::io::BufReader;
 use std::io::BufRead;
+use std::io::BufReader;
 use std::time::Instant;
 
 use std::io;
-#[macro_use]
 use thiserror::Error;
 
+use crate::kv::{KVFileIterator, KVFileWriter, KVPair};
 use std::cmp::Ordering;
-use std::iter::Peekable;
-use crate::kv::{KVPair, KVFileIterator, KVFileWriter};
 use std::convert::TryFrom;
-
+use std::iter::Peekable;
 
 type Result<T> = std::result::Result<T, SstError>;
 
 #[derive(Error, Debug)]
 pub enum SstError {
     #[error("Attempted to write {} but previous key is {}", current, previous)]
-
     UnsortedWrite { previous: String, current: String },
 
     #[error(transparent)]
@@ -72,20 +69,20 @@ impl PartialEq for MetaKey {
 }
 
 impl PartialOrd for MetaKey {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+    fn partial_cmp(&self, _other: &Self) -> Option<Ordering> {
         return Some(self.cmp(self));
     }
 }
 
 impl Eq for MetaKey {}
 
-struct SstMerger<I: Iterator<Item=KVPair>> {
+struct SstMerger<I: Iterator<Item = KVPair>> {
     heap: BinaryHeap<MetaKey, MinComparator>,
     segment_iterators: Vec<Peekable<I>>,
     previous_key: Option<String>,
 }
 
-impl<I: Iterator<Item=KVPair>> SstMerger<I> {
+impl<I: Iterator<Item = KVPair>> SstMerger<I> {
     fn new(
         mut heap: BinaryHeap<MetaKey, MinComparator>,
         mut segment_iterators_with_timestamp: Vec<(Peekable<I>, Instant)>,
@@ -105,13 +102,16 @@ impl<I: Iterator<Item=KVPair>> SstMerger<I> {
         }
         return Self {
             heap,
-            segment_iterators: segment_iterators_with_timestamp.into_iter().map(|x| x.0).collect(),
+            segment_iterators: segment_iterators_with_timestamp
+                .into_iter()
+                .map(|x| x.0)
+                .collect(),
             previous_key: None,
         };
     }
 }
 
-impl<I: Iterator<Item=KVPair>> Iterator for SstMerger<I> {
+impl<I: Iterator<Item = KVPair>> Iterator for SstMerger<I> {
     type Item = KVPair;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -253,7 +253,6 @@ impl Segment {
         Ok(value)
     }
 
-
     pub fn search_from(&mut self, key: &str, offset: u64) -> Result<Option<String>> {
         let current_pos = self.tell()?;
         self.seek(offset)?;
@@ -271,7 +270,7 @@ impl Segment {
         return self.search_from(key, 0);
     }
 
-    pub fn read(&self) -> impl Iterator<Item=KVPair> + '_ {
+    pub fn read(&self) -> impl Iterator<Item = KVPair> + '_ {
         let reader = BufReader::new(&self.fd);
         return reader.lines().map(|string| {
             KVPair::try_from(string.expect("the segment file should not be tampered with"))
@@ -279,8 +278,7 @@ impl Segment {
         });
     }
 
-
-    pub fn read_from_start(&mut self) -> Result<impl Iterator<Item=KVPair> + '_> {
+    pub fn read_from_start(&mut self) -> Result<impl Iterator<Item = KVPair> + '_> {
         self.reset()?;
         return Ok(self.read());
     }
@@ -288,16 +286,22 @@ impl Segment {
 
 #[cfg(test)]
 mod tests {
+    use crate::kv::{KVFileIterator, KVPair};
     use crate::sst::{merge, Segment};
-    use crate::kv::{KVPair, KVFileIterator};
 
     extern crate tempfile;
 
     #[test]
     fn test_search() -> Result<(), Box<dyn std::error::Error>> {
         let mut sst = Segment::with_file(tempfile::tempfile()?);
-        sst.write(KVPair { key: "k1".to_owned(), value: "v1".to_owned() })?;
-        sst.write(KVPair { key: "k2".to_owned(), value: "v2".to_owned() })?;
+        sst.write(KVPair {
+            key: "k1".to_owned(),
+            value: "v1".to_owned(),
+        })?;
+        sst.write(KVPair {
+            key: "k2".to_owned(),
+            value: "v2".to_owned(),
+        })?;
         assert_eq!(Some("v2".to_owned()), sst.search_from_start("k2")?);
         Ok(())
     }
@@ -305,9 +309,18 @@ mod tests {
     #[test]
     fn test_seek() -> Result<(), Box<dyn std::error::Error>> {
         let mut sst = Segment::with_file(tempfile::tempfile()?);
-        let first_offset = sst.write(KVPair { key: "k1".to_owned(), value: "v1".to_owned() })?;
-        let second_offset = sst.write(KVPair { key: "k2".to_owned(), value: "v2".to_owned() })?;
-        sst.write(KVPair { key: "k3".to_owned(), value: "v3".to_owned() })?;
+        let first_offset = sst.write(KVPair {
+            key: "k1".to_owned(),
+            value: "v1".to_owned(),
+        })?;
+        let second_offset = sst.write(KVPair {
+            key: "k2".to_owned(),
+            value: "v2".to_owned(),
+        })?;
+        sst.write(KVPair {
+            key: "k3".to_owned(),
+            value: "v3".to_owned(),
+        })?;
 
         sst.seek(first_offset)?;
         let first = sst.read().take(1).last();
@@ -323,8 +336,14 @@ mod tests {
     #[test]
     fn test_read() -> Result<(), Box<dyn std::error::Error>> {
         let mut sst = Segment::with_file(tempfile::tempfile()?);
-        sst.write(KVPair { key: "k1".to_owned(), value: "v1".to_owned() })?;
-        sst.write(KVPair { key: "k2".to_owned(), value: "v2".to_owned() })?;
+        sst.write(KVPair {
+            key: "k1".to_owned(),
+            value: "v1".to_owned(),
+        })?;
+        sst.write(KVPair {
+            key: "k2".to_owned(),
+            value: "v2".to_owned(),
+        })?;
         let iterator = &mut sst.read_from_start()?;
 
         let first = iterator.next();
@@ -340,15 +359,24 @@ mod tests {
     #[test]
     fn test_interspersed_seek_and_search() -> Result<(), Box<dyn std::error::Error>> {
         let mut sst = Segment::with_file(tempfile::tempfile()?);
-        let first_offset = sst.write(KVPair { key: "k1".to_owned(), value: "v1".to_owned() })?;
-        sst.write(KVPair { key: "k2".to_owned(), value: "v2".to_owned() })?;
+        let first_offset = sst.write(KVPair {
+            key: "k1".to_owned(),
+            value: "v1".to_owned(),
+        })?;
+        sst.write(KVPair {
+            key: "k2".to_owned(),
+            value: "v2".to_owned(),
+        })?;
         let value_v1 = sst.at(first_offset)?;
         let value = sst.search_from_start("k2")?;
 
         assert_eq!(value, Some("v2".to_owned()));
         assert_eq!(value_v1, Some("v1".to_owned()));
 
-        sst.write(KVPair { key: "k3".to_owned(), value: "v3".to_owned() })?;
+        sst.write(KVPair {
+            key: "k3".to_owned(),
+            value: "v3".to_owned(),
+        })?;
         for k in vec!["k1", "k2", "k3"] {
             assert!(sst.search_from_start(k)?.is_some());
         }
@@ -358,9 +386,18 @@ mod tests {
     #[test]
     fn test_search_range() -> Result<(), Box<dyn std::error::Error>> {
         let mut sst = Segment::with_file(tempfile::tempfile()?);
-        let offset_1 = sst.write(KVPair { key: "k1".to_owned(), value: "v1".to_owned() })?;
-        let offset_2 = sst.write(KVPair { key: "k2".to_owned(), value: "v2".to_owned() })?;
-        sst.write(KVPair { key: "k3".to_owned(), value: "v3".to_owned() })?;
+        let _offset_1 = sst.write(KVPair {
+            key: "k1".to_owned(),
+            value: "v1".to_owned(),
+        })?;
+        let offset_2 = sst.write(KVPair {
+            key: "k2".to_owned(),
+            value: "v2".to_owned(),
+        })?;
+        sst.write(KVPair {
+            key: "k3".to_owned(),
+            value: "v3".to_owned(),
+        })?;
 
         for key in vec!["k2", "k3"] {
             assert!(sst.search_from(key, offset_2)?.is_some());
@@ -372,19 +409,32 @@ mod tests {
     #[test]
     fn test_unsorted_writes() {
         let mut sst = Segment::with_file(tempfile::tempfile().unwrap());
-        sst.write(KVPair { key: "k2".to_owned(), value: "v2".to_owned() }).unwrap();
-        let result = sst.write(KVPair { key: "k1".to_owned(), value: "v1".to_owned() });
+        sst.write(KVPair {
+            key: "k2".to_owned(),
+            value: "v2".to_owned(),
+        })
+        .unwrap();
+        let result = sst.write(KVPair {
+            key: "k1".to_owned(),
+            value: "v1".to_owned(),
+        });
         assert!(result.is_err());
     }
 
     #[test]
     fn test_merges() -> Result<(), Box<dyn std::error::Error>> {
         let mut sst_1 = Segment::temp();
-        sst_1.write(KVPair { key: "k1".to_owned(), value: "v1".to_owned() })?;
+        sst_1.write(KVPair {
+            key: "k1".to_owned(),
+            value: "v1".to_owned(),
+        })?;
         let mut sst_2 = Segment::temp();
-        sst_2.write(KVPair { key: "k2".to_owned(), value: "v2".to_owned() })?;
+        sst_2.write(KVPair {
+            key: "k2".to_owned(),
+            value: "v2".to_owned(),
+        })?;
         let v = vec![sst_1, sst_2];
-        let mut merged = merge(v, 20, |index, offset, _| {})?;
+        let mut merged = merge(v, 20, |_index, _offset, _| {})?;
         assert_eq!(merged.len(), 1);
         let mut segment = merged.pop().unwrap();
         let pairs: Vec<_> = segment
@@ -403,17 +453,25 @@ mod tests {
         Ok(())
     }
 
-
     #[test]
     fn test_merge_with_same_keys_different_timestamps() -> Result<(), Box<dyn std::error::Error>> {
         let mut sst_1 = Segment::temp();
         let mut sst_2 = Segment::temp();
-        sst_1.write(KVPair { key: "k1".to_owned(), value: "v1".to_owned() })?;
-        sst_2.write(KVPair { key: "k1".to_owned(), value: "v2".to_owned() })?;
+        sst_1.write(KVPair {
+            key: "k1".to_owned(),
+            value: "v1".to_owned(),
+        })?;
+        sst_2.write(KVPair {
+            key: "k1".to_owned(),
+            value: "v2".to_owned(),
+        })?;
         let v = vec![sst_1, sst_2];
-        let mut merged = merge(v, 100, |index, offset, _| {})?;
+        let mut merged = merge(v, 100, |_index, _offset, _| {})?;
         let expected = vec![("k1".to_owned(), "v2".to_owned())];
-        let actual: Vec<_> = merged[0].read_from_start()?.map(|kv| (kv.key, kv.value)).collect();
+        let actual: Vec<_> = merged[0]
+            .read_from_start()?
+            .map(|kv| (kv.key, kv.value))
+            .collect();
         assert_eq!(expected, actual);
         Ok(())
     }
