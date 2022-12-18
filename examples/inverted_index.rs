@@ -1,15 +1,13 @@
 use lsm_engine::{LSMBuilder, LSMEngine};
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 const DOC_MAX_ID: &str = "doc_id_max";
 
 type DocId = usize;
-type PostingList = Vec<DocId>;
-type Term = String;
 
 struct InvertedIndex {
-    index: HashMap<Term, PostingList>,
+    index: LSMEngine,
     doc_store: LSMEngine,
     doc_id_max: LSMEngine,
 }
@@ -17,19 +15,24 @@ struct InvertedIndex {
 impl InvertedIndex {
     fn new() -> Self {
         Self {
-            index: HashMap::new(),
+            index: LSMBuilder::new().
+                segment_size(2000). // each sst file will have up to 2000 entries
+                inmemory_capacity(100). //store only 100 entries in memory
+                sparse_offset(20). //store one out of every 20 entries written into segments in memory
+                wal_path("/tmp/index_wal.ndjson"). //path
+                build(),
             doc_store: LSMBuilder::new().
-                segment_size(2000). // each sst file will have up to 2000 entries
-                inmemory_capacity(100). //store only 100 entries in memory
-                sparse_offset(20). //store one out of every 20 entries written into segments in memory
-                wal_path("/tmp/doc_store_wal.ndjson"). //path
-                build(),
+                    segment_size(2000). // each sst file will have up to 2000 entries
+                    inmemory_capacity(100). //store only 100 entries in memory
+                    sparse_offset(20). //store one out of every 20 entries written into segments in memory
+                    wal_path("/tmp/doc_store_wal.ndjson"). //path
+                    build(),
             doc_id_max: LSMBuilder::new().
-                segment_size(2000). // each sst file will have up to 2000 entries
-                inmemory_capacity(100). //store only 100 entries in memory
-                sparse_offset(20). //store one out of every 20 entries written into segments in memory
-                wal_path("/tmp/doc_id_max_wal.ndjson"). //path
-                build(),
+                        segment_size(2000). // each sst file will have up to 2000 entries
+                        inmemory_capacity(100). //store only 100 entries in memory
+                        sparse_offset(20). //store one out of every 20 entries written into segments in memory
+                        wal_path("/tmp/doc_id_max_wal.ndjson"). //path
+                        build(),
         }
     }
 
@@ -51,8 +54,20 @@ impl InvertedIndex {
 
         let mut tokens = document.split_whitespace();
         while let Some(token) = tokens.next() {
-            let entry = self.index.entry(token.to_string()).or_insert(vec![]);
-            entry.push(doc_id);
+            let plist = self.index.read(&token.to_string());
+            let mut plist = self
+                .index
+                .read(&token.to_string())?
+                .unwrap_or("[]".to_string());
+            // we don't deserialize back and forth, just mutate the string directly
+            let closer = plist.pop().unwrap();
+            assert!(closer == ']');
+            if plist.len() > 1 {
+                plist.push_str(format!(",{}]", doc_id).as_str());
+            } else {
+                plist.push_str(format!("{}]", doc_id).as_str());
+            }
+            self.index.write(token.to_string(), plist)?;
         }
         self.doc_id_max
             .write(DOC_MAX_ID.to_string(), (doc_id + 1).to_string())?;
@@ -84,7 +99,10 @@ impl InvertedIndex {
         for p in phash.iter() {
             // the update removes this term
             if !nhash.contains(p) {
-                let plist = self.index.get_mut(&p.to_string()).unwrap();
+                // we gotta deserialize to modify
+                let mut plist: Vec<usize> = serde_json::from_str(
+                    &self.index.read(p.to_string().as_str()).unwrap().unwrap(),
+                )?;
                 // we don't guarantee order of plist to make delete faster here
                 plist.swap_remove(
                     plist
@@ -92,6 +110,9 @@ impl InvertedIndex {
                         .position(|x| *x == doc_id)
                         .expect("doc_id not found"),
                 );
+                // then reserialize to store
+                self.index
+                    .write(p.to_string(), serde_json::to_string(&plist)?)?;
             } else {
                 // for "real" inverted index the logic is a bit more complex,
                 // as in bm25, eg., doc len changes also change the score every term has
@@ -101,8 +122,20 @@ impl InvertedIndex {
         }
         // what's left is brand new
         for n in nhash.iter() {
-            let plist = self.index.get_mut(&n.to_string()).unwrap();
-            plist.push(doc_id);
+            let mut plist = self
+                .index
+                .read(&n.to_string())
+                .unwrap_or(Some("[]".to_string()))
+                .unwrap();
+            // we don't deserialize back and forth, just mutate the string directly
+            let closer = plist.pop().unwrap();
+            assert!(closer == ']');
+            if plist.len() > 1 {
+                plist.push_str(format!(",{}]", doc_id).as_str());
+            } else {
+                plist.push_str(format!("{}]", doc_id).as_str());
+            }
+            self.index.write(n.to_string(), plist)?;
         }
         Ok(())
     }
@@ -113,23 +146,37 @@ impl InvertedIndex {
         // then we remove it from the index having identified its posting lists
         let mut tokens = document.split_whitespace();
         while let Some(token) = tokens.next() {
-            let plist = self.index.get_mut(token).unwrap();
+            // we gotta deserialize to modify
+            let mut plist: Vec<usize> = serde_json::from_str(
+                &self
+                    .index
+                    .read(token.to_string().as_str())
+                    .unwrap()
+                    .unwrap(),
+            )?;
+            // we don't guarantee order of plist to make delete faster here
             plist.swap_remove(
                 plist
                     .iter()
                     .position(|x| *x == doc_id)
                     .expect("doc_id not found"),
             );
+            // then reserialize to store
+            self.index
+                .write(doc_id.to_string(), serde_json::to_string(&plist)?)?;
         }
         Ok(())
     }
 
-    fn search(&self, query: &str) -> Vec<DocId> {
+    // searching can mut because of the underlying LSM read mut
+    fn search(&mut self, query: &str) -> Vec<DocId> {
         let mut results = vec![];
         let mut tokens = query.split_whitespace();
 
         while let Some(token) = tokens.next() {
-            if let Some(doc_ids) = self.index.get(token) {
+            if let Some(doc_ids) = self.index.read(token).expect("found token in index") {
+                let doc_ids: Vec<usize> =
+                    serde_json::from_str(&doc_ids.clone()).expect("valid plist");
                 results.extend(doc_ids);
             }
         }
@@ -139,18 +186,34 @@ impl InvertedIndex {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let docs = vec![
+        "some document i added",
+        "some other document i added",
+        "no tokens in common",
+    ];
     let mut ii = InvertedIndex::new();
-    ii.add_document("some document i added")?;
-    ii.add_document("some other document i added")?;
-    ii.add_document("no tokens in common")?;
-    let results = ii.search("added");
-    dbg!(&results);
+    for doc in &docs {
+        ii.add_document(doc)?;
+    }
+    let q = "added";
+    println!(
+        "We're searching for docs with '{}' in them, out of docs={:?}",
+        q, &docs
+    );
+    let results = ii.search(q);
+    println!("With all documents indexed, expect 2, found: {:?}", results);
     ii.delete_document(1)?;
     let results = ii.search("added");
-    dbg!(&results);
+    println!(
+        "With one removed (now docs={:?}), expect 2, found: {:?}",
+        &docs, results
+    );
     ii.update_document(2, "tokens in common added")?;
     let results = ii.search("added");
-    dbg!(&results);
+    println!(
+        "With one removed and one updated (now docs={:?}), expect 3, found: {:?}",
+        &docs, results
+    );
 
     Ok(())
 }
