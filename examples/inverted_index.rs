@@ -5,24 +5,24 @@ use std::collections::{HashMap, HashSet};
 #[derive(Debug)]
 struct InvertedIndex {
     index: HashMap<String, Vec<usize>>,
-    doc_store: Vec<String>,
+    doc_store: HashMap<usize, String>,
 }
 
 impl InvertedIndex {
     fn new() -> Self {
         Self {
             index: HashMap::new(),
-            doc_store: Vec::new(),
+            doc_store: HashMap::new(),
         }
     }
 
     fn get_document(&mut self, doc_id: usize) -> String {
-        self.doc_store.get(doc_id).unwrap().to_string()
+        self.doc_store.get(&doc_id).unwrap().to_string()
     }
 
     fn add_document(&mut self, document: &str) {
-        self.doc_store.push(document.to_string());
-        let doc_id = self.doc_store.len() - 1;
+        let doc_id = self.doc_store.values().len();
+        self.doc_store.insert(doc_id, document.to_string());
 
         let mut tokens = document.split_whitespace();
         while let Some(token) = tokens.next() {
@@ -39,7 +39,7 @@ impl InvertedIndex {
         // why don't we simply remove then add? because we want to preserve doc_id
         // we need a copy of the original content so we can find the plists
         let previous_content = self.get_document(doc_id).clone();
-        self.doc_store[doc_id] = new_content.to_string();
+        *self.doc_store.get_mut(&doc_id).unwrap() = new_content.to_string();
         // we just remove it from the index
         let mut previous_tokens = previous_content.split_whitespace();
         let mut new_tokens = new_content.split_whitespace();
@@ -83,7 +83,7 @@ impl InvertedIndex {
         // we don't remove it because the other ids would shift and disrupt O(1) gets
         // self.doc_store.remove(doc_id);
         // instead we just introduce empty content at the id
-        self.doc_store[doc_id] = "".to_string();
+        *self.doc_store.get_mut(&doc_id).unwrap() = "".to_string();
         // then we remove it from the index having identified its posting lists
         let mut tokens = document.split_whitespace();
         while let Some(token) = tokens.next() {
