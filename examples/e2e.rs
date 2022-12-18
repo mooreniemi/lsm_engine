@@ -24,7 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         assert!(default_lsm.contains(k)?);
     }
 
-    //std::fs::remove_file("my_write_ahead_log.txt")?;
+    std::fs::remove_file("/tmp/e2e_wal.ndjson")?;
 
     Ok(())
 }
