@@ -2,10 +2,15 @@ use lsm_engine::LSMBuilder;
 
 use std::collections::{HashMap, HashSet};
 
+type DocId = usize;
+type PostingList = Vec<DocId>;
+type DocContent = String;
+type Term = String;
+
 #[derive(Debug)]
 struct InvertedIndex {
-    index: HashMap<String, Vec<usize>>,
-    doc_store: HashMap<usize, String>,
+    index: HashMap<Term, PostingList>,
+    doc_store: HashMap<DocId, DocContent>,
 }
 
 impl InvertedIndex {
@@ -16,7 +21,7 @@ impl InvertedIndex {
         }
     }
 
-    fn get_document(&mut self, doc_id: usize) -> String {
+    fn get_document(&mut self, doc_id: DocId) -> String {
         self.doc_store.get(&doc_id).unwrap().to_string()
     }
 
@@ -33,7 +38,7 @@ impl InvertedIndex {
 
     fn update_document(
         &mut self,
-        doc_id: usize,
+        doc_id: DocId,
         new_content: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // why don't we simply remove then add? because we want to preserve doc_id
@@ -78,7 +83,7 @@ impl InvertedIndex {
         Ok(())
     }
 
-    fn delete_document(&mut self, doc_id: usize) -> Result<(), Box<dyn std::error::Error>> {
+    fn delete_document(&mut self, doc_id: DocId) -> Result<(), Box<dyn std::error::Error>> {
         let document = self.get_document(doc_id).clone();
         // we don't remove it because the other ids would shift and disrupt O(1) gets
         // self.doc_store.remove(doc_id);
@@ -98,7 +103,7 @@ impl InvertedIndex {
         Ok(())
     }
 
-    fn search(&self, query: &str) -> Vec<usize> {
+    fn search(&self, query: &str) -> Vec<DocId> {
         let mut results = vec![];
         let mut tokens = query.split_whitespace();
 
