@@ -54,7 +54,6 @@ impl InvertedIndex {
 
         let mut tokens = document.split_whitespace();
         while let Some(token) = tokens.next() {
-            let plist = self.index.read(&token.to_string());
             let mut plist = self
                 .index
                 .read(&token.to_string())?
