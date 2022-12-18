@@ -38,7 +38,7 @@ impl InvertedIndex {
     ) -> Result<(), Box<dyn std::error::Error>> {
         // why don't we simply remove then add? because we want to preserve doc_id
         // we need a copy of the original content so we can find the plists
-        let previous_content = self.doc_store.get(doc_id).unwrap().clone();
+        let previous_content = self.get_document(doc_id).clone();
         self.doc_store[doc_id] = new_content.to_string();
         // we just remove it from the index
         let mut previous_tokens = previous_content.split_whitespace();
@@ -64,7 +64,9 @@ impl InvertedIndex {
                         .expect("doc_id not found"),
                 );
             } else {
-                // we saw this term before, so it isn't new
+                // for "real" inverted index the logic is a bit more complex,
+                // as in bm25, eg., doc len changes also change the score every term has
+                // but for our simple setup, we saw this term before, so it isn't new
                 nhash.remove(p);
             }
         }
@@ -73,13 +75,11 @@ impl InvertedIndex {
             let plist = self.index.get_mut(&n.to_string()).unwrap();
             plist.push(doc_id);
         }
-        // for "real" inverted index the above logic is a bit more complex,
-        // as in bm25, eg., doc len changes also change the score every term has
         Ok(())
     }
 
     fn delete_document(&mut self, doc_id: usize) -> Result<(), Box<dyn std::error::Error>> {
-        let document = self.doc_store.get(doc_id).unwrap().clone();
+        let document = self.get_document(doc_id).clone();
         // we don't remove it because the other ids would shift and disrupt O(1) gets
         // self.doc_store.remove(doc_id);
         // instead we just introduce empty content at the id
@@ -131,7 +131,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         segment_size(2000). // each sst file will have up to 2000 entries
         inmemory_capacity(100). //store only 100 entries in memory
         sparse_offset(20). //store one out of every 20 entries written into segments in memory
-        wal_path("/tmp/vec_value_rs_wal.ndjson"). //path
+        wal_path("/tmp/inverted_index_rs_wal.ndjson"). //path
         build();
 
     let dataset = vec![
